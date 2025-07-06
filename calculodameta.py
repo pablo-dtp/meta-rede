@@ -24,6 +24,7 @@ class CalculoMeta:
         self.sqlite_conn = sqlite3.connect(self.db_path)
         self.sqlite_cursor = self.sqlite_conn.cursor()
         self.logger.info(f"Conexão SQLite aberta para loja {self.id_loja}.")
+        self.criar_tabela_resultado_meta()  # Garante tabela criada ao abrir conexão
 
     def fechar_sqlite(self):
         if self.sqlite_cursor:
@@ -31,6 +32,28 @@ class CalculoMeta:
         if self.sqlite_conn:
             self.sqlite_conn.close()
         self.logger.info(f"Conexão SQLite fechada para loja {self.id_loja}.")
+
+    def criar_tabela_resultado_meta(self):
+        self.sqlite_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS resultado_meta_por_mes (
+                id_loja INTEGER,
+                mes_referencia TEXT,
+                data_ultima_consulta TEXT,
+                metavalor REAL,
+                metavalorabatido REAL,
+                percentual_metavalor REAL,
+                skumetamix INTEGER,
+                skumetamixcomprado INTEGER,
+                percentual_metamix REAL,
+                bonificacao_pct REAL,
+                valor_bonificacao REAL,
+                motivo TEXT,
+                PRIMARY KEY (id_loja, mes_referencia)
+            )
+        """)
+        self.sqlite_conn.commit()
+
+    # Funções de busca (vendas, compras, sku etc) permanecem as mesmas
 
     def buscar_vendas_mes_anterior(self, mes_referencia):
         ano, mes = map(int, mes_referencia.split('-'))
@@ -95,10 +118,83 @@ class CalculoMeta:
         return total
 
     def salvar_resultado_meta(self, mes_referencia, meta_25, valor_compra, perc_valor,
-                              total_catalogo, total_comprados, perc_mix):
+                              total_catalogo, total_comprados, perc_mix,
+                              bonificacao_pct, valor_bonificacao, motivo):
         data_hoje = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         self.sqlite_cursor.execute("""
+            INSERT OR REPLACE INTO resultado_meta_por_mes (
+                id_loja, mes_referencia, data_ultima_consulta,
+                metavalor, metavalorabatido, percentual_metavalor,
+                skumetamix, skumetamixcomprado, percentual_metamix,
+                bonificacao_pct, valor_bonificacao, motivo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            self.id_loja, mes_referencia, data_hoje,
+            meta_25, valor_compra, perc_valor,
+            total_catalogo, total_comprados, perc_mix,
+            bonificacao_pct, valor_bonificacao, motivo
+        ))
+
+        self.sqlite_conn.commit()
+        self.logger.info(f"Loja {self.id_loja} - Resultado salvo em resultado_meta_por_mes.")
+
+    def calcular_bonificacao_loja(self, mes_referencia):
+        venda_mes_anterior = self.buscar_vendas_mes_anterior(mes_referencia)
+        valor_compra = self.buscar_compras_mes(mes_referencia)
+
+        meta_25 = venda_mes_anterior * 0.25
+        meta_20 = venda_mes_anterior * 0.20
+
+        total_catalogo = self.buscar_total_skus_catalogo(mes_referencia)
+        total_comprados = self.buscar_total_skus_comprados(mes_referencia)
+
+        perc_mix = (total_comprados / total_catalogo) * 100 if total_catalogo else 0.0
+        perc_valor = (valor_compra / meta_25) * 100 if meta_25 else 0.0
+
+        bonificacao_pct = 0.0
+        motivo = ""
+
+        if valor_compra >= meta_25 and perc_mix >= 50:
+            bonificacao_pct = 0.02
+            motivo = "Bateu 25% da meta de valor e 50% do mix"
+        elif valor_compra >= meta_20 and perc_mix >= 50:
+            bonificacao_pct = 0.015
+            motivo = "Bateu 20% da meta de valor e 50% do mix"
+        elif valor_compra >= meta_20 and perc_mix < 50:
+            bonificacao_pct = 0.01
+            motivo = "Não bateu mix, mas bateu 20% da meta de valor"
+        else:
+            bonificacao_pct = 0.0
+            motivo = "Não bateu critérios de bonificação"
+
+        valor_bonificacao = valor_compra * bonificacao_pct
+
+        self.logger.info(f"Loja {self.id_loja} - Meta 25%: R$ {meta_25:,.2f}")
+        self.logger.info(f"Loja {self.id_loja} - Comprado: R$ {valor_compra:,.2f} ({perc_valor:.2f}%)")
+        self.logger.info(f"Loja {self.id_loja} - MIX: {total_comprados}/{total_catalogo} = {perc_mix:.2f}%")
+        self.logger.info(f"Loja {self.id_loja} - Bonificação: {bonificacao_pct*100:.2f}% ({motivo})")
+        self.logger.info(f"Loja {self.id_loja} - Valor Bonificação: R$ {valor_bonificacao:,.2f}")
+
+        self.salvar_resultado_meta(
+            mes_referencia, meta_25, valor_compra, perc_valor,
+            total_catalogo, total_comprados, perc_mix,
+            bonificacao_pct, valor_bonificacao, motivo
+        )
+
+    @staticmethod
+    def calcular_bonificacao_grupo(mes_referencia):
+        load_dotenv()
+        db_path = os.getenv("DB_LITE_PATH")
+
+        logger_config = Logger()
+        logger = logger_config.get_logger("CalculoMeta_GRUPO")
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Cria tabela se não existir para grupo também
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS resultado_meta_por_mes (
                 id_loja INTEGER,
                 mes_referencia TEXT,
@@ -109,64 +205,13 @@ class CalculoMeta:
                 skumetamix INTEGER,
                 skumetamixcomprado INTEGER,
                 percentual_metamix REAL,
+                bonificacao_pct REAL,
+                valor_bonificacao REAL,
+                motivo TEXT,
                 PRIMARY KEY (id_loja, mes_referencia)
             )
         """)
-
-        self.sqlite_cursor.execute("""
-            INSERT OR REPLACE INTO resultado_meta_por_mes (
-                id_loja, mes_referencia, data_ultima_consulta,
-                metavalor, metavalorabatido, percentual_metavalor,
-                skumetamix, skumetamixcomprado, percentual_metamix
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            self.id_loja, mes_referencia, data_hoje,
-            meta_25, valor_compra, perc_valor,
-            total_catalogo, total_comprados, perc_mix
-        ))
-
-        self.sqlite_conn.commit()
-        self.logger.info(f"Loja {self.id_loja} - Resultado salvo em resultado_meta_por_mes.")
-
-    def calcular_bonificacao(self, mes_referencia):
-        venda_mes_anterior = self.buscar_vendas_mes_anterior(mes_referencia)
-        valor_compra = self.buscar_compras_mes(mes_referencia)
-
-        meta_25 = venda_mes_anterior * 0.25
-        total_catalogo = self.buscar_total_skus_catalogo(mes_referencia)
-        total_comprados = self.buscar_total_skus_comprados(mes_referencia)
-
-        perc_mix = (total_comprados / total_catalogo) * 100 if total_catalogo else 0.0
-        perc_valor = (valor_compra / meta_25) * 100 if meta_25 else 0.0
-
-        self.logger.info(f"Loja {self.id_loja} - Meta 25%: R$ {meta_25:,.2f}")
-        self.logger.info(f"Loja {self.id_loja} - Comprado: R$ {valor_compra:,.2f} ({perc_valor:.2f}%)")
-        self.logger.info(f"Loja {self.id_loja} - MIX: {total_comprados}/{total_catalogo} = {perc_mix:.2f}%")
-
-        self.salvar_resultado_meta(
-            mes_referencia, meta_25, valor_compra, perc_valor,
-            total_catalogo, total_comprados, perc_mix
-        )
-
-    def processar(self, mes_referencia):
-        try:
-            self.conectar_sqlite()
-            self.calcular_bonificacao(mes_referencia)
-        except Exception as e:
-            self.logger.error(f"Erro no processamento da loja {self.id_loja}: {e}")
-        finally:
-            self.fechar_sqlite()
-
-    @staticmethod
-    def calcular_rede(mes_referencia):
-        load_dotenv()
-        db_path = os.getenv("DB_LITE_PATH")
-
-        logger_config = Logger()
-        logger = logger_config.get_logger("CalculoMeta_GRUPO")
-
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        conn.commit()
 
         cursor.execute("""
             SELECT SUM(metavalorabatido), SUM(metavalor),
@@ -182,56 +227,80 @@ class CalculoMeta:
             perc_valor = (total_comprado / total_meta) * 100 if total_meta else 0
             perc_mix = (total_skus_comprados / total_skus_catalogo) * 100 if total_skus_catalogo else 0
 
-            data_hoje = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            bonificacao_pct = 0.0
+            motivo = ""
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS resultado_meta_por_mes (
-                    id_loja INTEGER,
-                    mes_referencia TEXT,
-                    data_ultima_consulta TEXT,
-                    metavalor REAL,
-                    metavalorabatido REAL,
-                    percentual_metavalor REAL,
-                    skumetamix INTEGER,
-                    skumetamixcomprado INTEGER,
-                    percentual_metamix REAL,
-                    PRIMARY KEY (id_loja, mes_referencia)
-                )
-            """)
+            # Decide bonificação para grupo, com mesmas regras das lojas
+            meta_25 = total_meta * 0.25
+            meta_20 = total_meta * 0.20
+
+            if total_comprado >= meta_25 and perc_mix >= 50:
+                bonificacao_pct = 0.02
+                motivo = "Grupo bateu 25% da meta de valor e 50% do mix"
+            elif total_comprado >= meta_20 and perc_mix >= 50:
+                bonificacao_pct = 0.015
+                motivo = "Grupo bateu 20% da meta de valor e 50% do mix"
+            elif total_comprado >= meta_20 and perc_mix < 50:
+                bonificacao_pct = 0.01
+                motivo = "Grupo não bateu mix, mas bateu 20% da meta de valor"
+            else:
+                bonificacao_pct = 0.0
+                motivo = "Grupo não bateu critérios de bonificação"
+
+            valor_bonificacao = total_comprado * bonificacao_pct
+
+            data_hoje = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute("""
                 INSERT OR REPLACE INTO resultado_meta_por_mes (
                     id_loja, mes_referencia, data_ultima_consulta,
                     metavalor, metavalorabatido, percentual_metavalor,
-                    skumetamix, skumetamixcomprado, percentual_metamix
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    skumetamix, skumetamixcomprado, percentual_metamix,
+                    bonificacao_pct, valor_bonificacao, motivo
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 0, mes_referencia, data_hoje,
                 total_meta, total_comprado, perc_valor,
-                total_skus_catalogo, total_skus_comprados, perc_mix
+                total_skus_catalogo, total_skus_comprados, perc_mix,
+                bonificacao_pct, valor_bonificacao, motivo
             ))
 
             conn.commit()
-            logger.info(f"[Deus Te Pague] Totais salvos para {mes_referencia} como id_loja = 0.")
-            logger.info(f"[Deus Te Pague] Valor Comprado: R$ {total_comprado:,.2f}")
-            logger.info(f"[Deus Te Pague] Meta Valor: R$ {total_meta:,.2f}")
-            logger.info(f"[Deus Te Pague] Percentual Meta Valor: {perc_valor:.2f}%")
-            logger.info(f"[Deus Te Pague] Total SKUs catálogo: {total_skus_catalogo}")
-            logger.info(f"[Deus Te Pague] Total SKUs comprados: {total_skus_comprados}")
-            logger.info(f"[Deus Te Pague] Percentual MIX: {perc_mix:.2f}%")
+            logger.info(f"[Grupo] Totais salvos para {mes_referencia} como id_loja = 0.")
+            logger.info(f"[Grupo] Valor Comprado: R$ {total_comprado:,.2f}")
+            logger.info(f"[Grupo] Meta Valor: R$ {total_meta:,.2f}")
+            logger.info(f"[Grupo] Percentual Meta Valor: {perc_valor:.2f}%")
+            logger.info(f"[Grupo] Total SKUs catálogo: {total_skus_catalogo}")
+            logger.info(f"[Grupo] Total SKUs comprados: {total_skus_comprados}")
+            logger.info(f"[Grupo] Percentual MIX: {perc_mix:.2f}%")
 
         else:
-            logger.warning(f"[Deus Te Pague] Nenhum dado consolidado encontrado para {mes_referencia}.")
+            logger.warning(f"[Grupo] Nenhum dado consolidado encontrado para {mes_referencia}.")
 
         conn.close()
+
+    def processar(self, mes_referencia):
+        try:
+            self.conectar_sqlite()
+            if self.id_loja == 0:
+                self.calcular_bonificacao_grupo(mes_referencia)
+            else:
+                self.calcular_bonificacao_loja(mes_referencia)
+        except Exception as e:
+            self.logger.error(f"Erro no processamento da loja {self.id_loja}: {e}")
+        finally:
+            self.fechar_sqlite()
 
 
 if __name__ == "__main__":
     agora = datetime.now()
     mes_referencia = agora.strftime("%Y-%m")
 
+    # Calcula grupo primeiro
+    calc_grupo = CalculoMeta(id_loja=0)
+    calc_grupo.processar(mes_referencia)
+
+    # Depois calcula as lojas individualmente
     for loja in [1, 2, 3]:
         calc = CalculoMeta(id_loja=loja)
         calc.processar(mes_referencia)
-
-    CalculoMeta.calcular_rede(mes_referencia)

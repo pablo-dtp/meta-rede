@@ -69,7 +69,7 @@ class Main:
             meta.processar(self.mes_referencia)
 
         self.logger.info("Iniciando cálculo consolidado da rede (id_loja=0)")
-        CalculoMeta.calcular_rede(self.mes_referencia)
+        CalculoMeta.calcular_bonificacao_grupo(self.mes_referencia)
 
 
     def executar_todas_rotinas(self):
