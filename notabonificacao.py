@@ -3,6 +3,7 @@ import sqlite3
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from logger import Logger
 
 class BonificacaoPorMes:
@@ -54,19 +55,24 @@ class BonificacaoPorMes:
         self.sqlite_conn = sqlite3.connect(self.db_path)
         self.sqlite_cursor = self.sqlite_conn.cursor()
 
-        # Cria a tabela se não existir
+        # Cria a tabela com a nova estrutura
         self.sqlite_cursor.execute("""
             CREATE TABLE IF NOT EXISTS bonificacao_por_mes (
-                mes_referencia TEXT,
+                mes_referencia_meta TEXT,
+                mes_lancamento TEXT,
                 id_loja INTEGER,
                 bonificacao BOOLEAN,
                 valortotal REAL,
-                PRIMARY KEY (mes_referencia, id_loja)
+                PRIMARY KEY (mes_referencia_meta, id_loja)
             )
         """)
         self.sqlite_conn.commit()
-
         self.logger.info("Tabela bonificacao_por_mes criada/verificada no SQLite.")
+
+    def mes_referencia_meta(self):
+        dt = datetime(self.ano, self.mes, 1)
+        dt_meta = dt - relativedelta(months=1)
+        return dt_meta.strftime("%Y-%m")
 
     def buscar_bonificacao_pg(self):
         query = """
@@ -91,12 +97,6 @@ class BonificacaoPorMes:
         return resultado
 
     def salvar_sqlite(self, dados_pg):
-        """
-        dados_pg será algo como:
-        [(7, 999.90)]
-        ou lista vazia []
-        """
-
         if dados_pg:
             total = float(dados_pg[0][1]) if dados_pg[0][1] is not None else 0.0
             bonificacao = True
@@ -104,12 +104,15 @@ class BonificacaoPorMes:
             total = 0.0
             bonificacao = False
 
+        mes_meta = self.mes_referencia_meta()
+
         self.sqlite_cursor.execute("""
             INSERT OR REPLACE INTO bonificacao_por_mes
-            (mes_referencia, id_loja, bonificacao, valortotal)
-            VALUES (?, ?, ?, ?)
+            (mes_referencia_meta, mes_lancamento, id_loja, bonificacao, valortotal)
+            VALUES (?, ?, ?, ?, ?)
         """, (
-            self.mes_referencia,
+            mes_meta,
+            self.mes_referencia,  # mês em que a bonificação chegou
             self.id_loja,
             bonificacao,
             total
@@ -117,7 +120,9 @@ class BonificacaoPorMes:
         self.sqlite_conn.commit()
 
         self.logger.info(
-            f"Salvo bonificação no SQLite: loja={self.id_loja}, mes={self.mes_referencia}, bonificacao={bonificacao}, total={total:.2f}"
+            f"Salvo bonificação no SQLite: loja={self.id_loja}, "
+            f"meta={mes_meta}, lancamento={self.mes_referencia}, "
+            f"bonificacao={bonificacao}, total={total:.2f}"
         )
 
     def verificar_bonificacao(self):
@@ -150,5 +155,5 @@ class BonificacaoPorMes:
 
 if __name__ == "__main__":
     for loja in [1, 2, 3]:
-        bonif = BonificacaoPorMes(id_loja=loja, mes_referencia="2025-06")  # Exemplo de uso
+        bonif = BonificacaoPorMes(id_loja=loja, mes_referencia="2025-07")
         bonif.verificar_bonificacao()

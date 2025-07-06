@@ -19,5 +19,7 @@ class Logger:
             level=logging.INFO
         )
 
+        # Ajusta o nível para suprimir logs desnecessários
+
     def get_logger(self, nome):
         return logging.getLogger(nome)

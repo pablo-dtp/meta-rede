@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f7fa;
+    }
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+      margin-bottom: 5px;
+    }
+    .subtitulo {
+      text-align: center;
+      color: #7f8c8d;
+      margin-top: 0;
+      margin-bottom: 30px;
+    }
+    .cards {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      margin-bottom: 40px;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      flex: 1 1 200px;
+      padding: 20px;
+      text-align: center;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 32px;
+      color: #3498db;
+    }
+    .card p {
+      margin: 5px 0 0;
+      color: #7f8c8d;
+      font-size: 14px;
+    }
+    .tabela {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 40px;
+    }
+    .tabela th,
+    .tabela td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      font-size: 12px;
+      text-align: center;
+      word-break: break-word;
+    }
+    .tabela th {
+      background-color: #2980b9;
+      color: white;
+    }
+    .graficos {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .grafico-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      text-align: center;
+    }
+    .grafico-container h3 {
+      margin-top: 0;
+      color: #2c3e50;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+    h2 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+    .status-ok {
+      color: green;
+      font-weight: bold;
+    }
+    .status-erro {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+  <title>Relatório de Metas</title>
+</head>
+<body>
+  <h1>Relatório de Metas</h1>
+  <p class="subtitulo">{{ mes_referencia }}</p>
+
+  <!-- Cards de resumo -->
+  <div class="cards">
+    <div class="card">
+      <h2>{{ cards.total_lojas }}</h2>
+      <p>Lojas</p>
+    </div>
+    <div class="card">
+      <h2>{{ cards.media_meta_valor }}%</h2>
+      <p>Média % Meta Valor</p>
+    </div>
+    <div class="card">
+      <h2>{{ cards.media_mix }}%</h2>
+      <p>Média % Mix SKUs<br>({{ cards.skus_comprados_total }} / {{ cards.skus_catalogo_total }})</p>
+    </div>
+    <div class="card">
+      <h2>R$ {{ "{:,.2f}".format(cards.total_bonificacao) }}</h2>
+      <p>Total Bonificação</p>
+    </div>
+  </div>
+
+  <!-- Tabela detalhada -->
+  <table class="tabela">
+    <thead>
+      <tr>
+        <th>Loja</th>
+        <th>Meta Valor (R$)</th>
+        <th>Valor Comprado (R$)</th>
+        <th>% Meta Valor</th>
+        <th>Mix SKUs</th>
+        <th>% Bonif.</th>
+        <th>Bonificação (R$)</th>
+        <th>Motivo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in dados %}
+      <tr>
+        <td>{{ d.id_loja }}</td>
+        <td>{{ "{:,.2f}".format(d.metavalor) }}</td>
+        <td>{{ "{:,.2f}".format(d.metavalorabatido) }}</td>
+        <td>{{ "{:.2f}".format(d.percentual_metavalor) }}%</td>
+        <td>{{ d.skumetamixcomprado }} / {{ d.skumetamix }} ({{ "{:.2f}".format(d.percentual_metamix) }}%)</td>
+        <td>{{ "{:.2f}".format(d.bonificacao_pct * 100) }}%</td>
+        <td>{{ "{:,.2f}".format(d.valor_bonificacao) }}</td>
+        <td>{{ d.motivo }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Gráficos de linha -->
+  <div class="graficos">
+    <div class="grafico-container">
+      <h3>Evolução % Meta Valor - 2025</h3>
+      <img src="data:image/png;base64,{{ grafico_linha_valor }}" alt="Gráfico Linha Meta Valor" />
+    </div>
+    <div class="grafico-container">
+      <h3>Evolução % Mix SKUs - 2025</h3>
+      <img src="data:image/png;base64,{{ grafico_linha_mix }}" alt="Gráfico Linha Mix SKUs" />
+    </div>
+  </div>
+
+  <!-- Nova tabela Confirmação de Bonificação -->
+  <h2>Confirmação de Bonificação Recebida</h2>
+  <table class="tabela" style="width: 50%; margin-top: 20px;">
+    <thead>
+      <tr>
+        <th>Loja</th>
+        <th>Deveria Chegar (R$)</th>
+        <th>Chegou (R$)</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in bonificacoes %}
+      <tr>
+        <td>{{ b.id_loja }}</td>
+        <td>{{ "{:,.2f}".format(b.valor_deveria_chegar) }}</td>
+        <td>{{ "{:,.2f}".format(b.valor_chegou) }}</td>
+        <td class="{{ 'status-ok' if b.status == 'OK' else 'status-erro' }}">
+          {{ b.status }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

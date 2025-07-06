@@ -22,7 +22,7 @@ class ProdutosRedeScraper:
             raise ValueError("Variável DB_LITE_PATH não configurada no .env")
 
         self.mes_referencia = datetime.now().strftime("%Y-%m")
-        #self.mes_referencia = "2025-06"
+        #self.mes_referencia = "2025-05"
         self.data_coleta = datetime.now().strftime("%Y-%m-%d")
 
         logger_config = Logger()  # <== sem passar argumento, só instancia

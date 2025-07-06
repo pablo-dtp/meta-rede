@@ -85,10 +85,26 @@ class Main:
 
 
 if __name__ == "__main__":
+    
     from datetime import datetime
     lojas = [1, 2, 3]
-    #mes_referencia = datetime.now().strftime("%Y-%m")  # pega mês atual
-    mes_referencia = "2025-06"
-
+    mes_referencia = datetime.now().strftime("%Y-%m")  # pega mês atual
+    #mes_referencia = "2025-06"
+    
     rotinas = Main(lojas, mes_referencia)
     rotinas.executar_todas_rotinas()
+    """ 
+    from datetime import datetime
+
+    lojas = [1, 2, 3]
+    
+    ano_atual = datetime.now().year
+    mes_atual = datetime.now().month
+
+    for mes in range(1, mes_atual + 1):
+        mes_referencia = f"{ano_atual}-{mes:02d}"
+        print(f"Rodando rotinas para o mês {mes_referencia}")
+        
+        rotinas = Main(lojas, mes_referencia)
+        rotinas.executar_todas_rotinas()
+    """ 
