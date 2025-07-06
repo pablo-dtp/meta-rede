@@ -8,6 +8,8 @@ from notabonificacao import BonificacaoPorMes
 from comprasvalor import ComprasValorPorMes
 from comparamix import ComparadorMixProdutos
 from calculodameta import CalculoMeta
+from relatorio import RelatorioMeta
+
 
 class Main:
     def __init__(self, lojas, mes_referencia):
@@ -82,6 +84,13 @@ class Main:
         self.executar_compras_valor()
         self.executar_comparamix()
         self.executar_calculodameta()
+
+        self.logger.info("Executando geração do relatório final em PDF...")
+        try:
+            RelatorioMeta(self.mes_referencia).gerar()
+            self.logger.info("Relatório gerado com sucesso.")
+        except Exception as e:
+            self.logger.error(f"Erro ao gerar relatório: {e}")
 
 
 if __name__ == "__main__":
