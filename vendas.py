@@ -6,9 +6,22 @@ from datetime import datetime
 from logger import Logger  # importa o logger centralizado
 
 class VendasPorMes:
-    def __init__(self, id_loja):
+    def __init__(self, id_loja, mes_referencia=None):
         load_dotenv()
         self.id_loja = id_loja
+
+        # Se mes_referencia não for passado, usa data atual formatada YYYY-MM
+        if mes_referencia is None:
+            agora = datetime.now()
+            self.mes_referencia = f"{agora.year}-{agora.month:02d}"
+        else:
+            self.mes_referencia = mes_referencia
+
+        try:
+            self.ano, self.mes = map(int, self.mes_referencia.split('-'))
+        except Exception:
+            raise ValueError("mes_referencia deve estar no formato 'YYYY-MM'")
+
         self.conn_pg = None
         self.cursor_pg = None
         self.conn_sqlite = None
@@ -50,7 +63,7 @@ class VendasPorMes:
 
         self.logger.info("Tabela vendas_por_mes criada/verificada no SQLite.")
 
-    def buscar_vendas_pg(self, ano, mes):
+    def buscar_vendas_pg(self):
         query = """
             SELECT
                 EXTRACT(MONTH FROM data) AS mes,
@@ -63,17 +76,17 @@ class VendasPorMes:
             GROUP BY EXTRACT(MONTH FROM data)
             ORDER BY mes;
         """
-        self.cursor_pg.execute(query, (ano, mes, self.id_loja))
+        self.cursor_pg.execute(query, (self.ano, self.mes, self.id_loja))
         resultado = self.cursor_pg.fetchall()
-        self.logger.info(f"Buscadas vendas para loja {self.id_loja} em {ano}-{mes:02d}.")
+        self.logger.info(f"Buscadas vendas para loja {self.id_loja} em {self.mes_referencia}.")
         return resultado
 
-    def salvar_sqlite(self, ano, dados):
+    def salvar_sqlite(self, dados):
         for mes_pg, venda in dados:
             mes_pg_int = int(mes_pg) if mes_pg is not None else None
             venda_float = float(venda) if venda is not None else 0.0
 
-            mes_referencia = f"{ano}-{mes_pg_int:02d}"
+            mes_referencia = f"{self.ano}-{mes_pg_int:02d}"
 
             self.cursor_sqlite.execute("""
                 INSERT OR REPLACE INTO vendas_por_mes (id_loja, mes_referencia, valor_venda)
@@ -84,24 +97,20 @@ class VendasPorMes:
                 venda_float
             ))
         self.conn_sqlite.commit()
-        self.logger.info(f"Salvo SQLite para loja {self.id_loja} em {ano}.")
+        self.logger.info(f"Salvo SQLite para loja {self.id_loja} em {self.mes_referencia}.")
 
     def consultar_venda(self):
         try:
-            agora = datetime.now()
-            ano = agora.year
-            mes = agora.month
-
             self.conectar_postgres()
             self.conectar_sqlite()
 
-            dados = self.buscar_vendas_pg(ano, mes)
+            dados = self.buscar_vendas_pg()
             if dados:
-                self.salvar_sqlite(ano, dados)
+                self.salvar_sqlite(dados)
             else:
-                self.logger.info(f"Sem vendas encontradas para loja {self.id_loja} em {ano}-{mes:02d}.")
+                self.logger.info(f"Sem vendas encontradas para loja {self.id_loja} em {self.mes_referencia}.")
 
-            self.logger.info(f"Processo finalizado para loja {self.id_loja} em {ano}-{mes:02d}.")
+            self.logger.info(f"Processo finalizado para loja {self.id_loja} em {self.mes_referencia}.")
         except Exception as e:
             self.logger.error(f"Erro para loja {self.id_loja}: {e}")
         finally:
@@ -122,5 +131,5 @@ class VendasPorMes:
 if __name__ == "__main__":
     lojas = [1, 2, 3]
     for loja in lojas:
-        vp = VendasPorMes(id_loja=loja)
+        vp = VendasPorMes(id_loja=loja, mes_referencia="2025-06")
         vp.consultar_venda()

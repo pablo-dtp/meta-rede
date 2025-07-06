@@ -8,7 +8,10 @@ class ComparadorMixProdutos:
         load_dotenv()
         if db_path is None:
             db_path = os.getenv("DB_LITE_PATH")
+        if db_path is None:
+            raise ValueError("Variável DB_LITE_PATH não encontrada no ambiente")
         self.db_path = db_path
+
 
         # Inicializa o logger configurado e obtém logger com nome da classe
         logger_config = Logger()

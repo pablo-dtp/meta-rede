@@ -24,7 +24,7 @@ class ProdutosRedeScraper:
         self.mes_referencia = datetime.now().strftime("%Y-%m")
         self.data_coleta = datetime.now().strftime("%Y-%m-%d")
 
-        logger_config = Logger(log_file='produtosrede.log')
+        logger_config = Logger()  # <== sem passar argumento, só instancia
         self.logger = logger_config.get_logger(self.__class__.__name__)
 
         self.usuario = os.getenv("USUARIO_VR")
@@ -150,8 +150,4 @@ class ProdutosRedeScraper:
 
 if __name__ == "__main__":
     scraper = ProdutosRedeScraper()
-    sucesso = scraper.coletar_produtos()
-    if sucesso:
-        print("Coleta finalizada com sucesso.")
-    else:
-        print("Erro na coleta.")
+    scraper.coletar_produtos()
