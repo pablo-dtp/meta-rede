@@ -40,7 +40,7 @@ class CalculoMeta:
                 mes_referencia TEXT,
                 data_ultima_consulta TEXT,
                 metavalor REAL,
-                metavalorabatido REAL,
+                metavalorbatido REAL,
                 percentual_metavalor REAL,
                 skumetamix INTEGER,
                 skumetamixcomprado INTEGER,
@@ -125,7 +125,7 @@ class CalculoMeta:
         self.sqlite_cursor.execute("""
             INSERT OR REPLACE INTO resultado_meta_por_mes (
                 id_loja, mes_referencia, data_ultima_consulta,
-                metavalor, metavalorabatido, percentual_metavalor,
+                metavalor, metavalorbatido, percentual_metavalor,
                 skumetamix, skumetamixcomprado, percentual_metamix,
                 bonificacao_pct, valor_bonificacao, motivo
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -193,14 +193,14 @@ class CalculoMeta:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Cria tabela se não existir para grupo também
+        # Cria tabela caso não exista
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS resultado_meta_por_mes (
                 id_loja INTEGER,
                 mes_referencia TEXT,
                 data_ultima_consulta TEXT,
                 metavalor REAL,
-                metavalorabatido REAL,
+                metavalorbatido REAL,
                 percentual_metavalor REAL,
                 skumetamix INTEGER,
                 skumetamixcomprado INTEGER,
@@ -213,24 +213,29 @@ class CalculoMeta:
         """)
         conn.commit()
 
+        # Soma os dados consolidados das lojas
         cursor.execute("""
-            SELECT SUM(metavalorabatido), SUM(metavalor),
-                   SUM(skumetamixcomprado), SUM(skumetamix)
-              FROM resultado_meta_por_mes
-             WHERE mes_referencia = ?
-               AND id_loja != 0
+            SELECT 
+                SUM(metavalorbatido),
+                SUM(metavalor),
+                SUM(skumetamixcomprado),
+                SUM(skumetamix)
+            FROM resultado_meta_por_mes
+            WHERE mes_referencia = ?
+            AND id_loja != 0
         """, (mes_referencia,))
         row = cursor.fetchone()
 
         if row:
             total_comprado, total_meta, total_skus_comprados, total_skus_catalogo = row
-            perc_valor = (total_comprado / total_meta) * 100 if total_meta else 0
-            perc_mix = (total_skus_comprados / total_skus_catalogo) * 100 if total_skus_catalogo else 0
 
+            perc_valor = (total_comprado / total_meta) * 100 if total_meta else 0.0
+            perc_mix = (total_skus_comprados / total_skus_catalogo) * 100 if total_skus_catalogo else 0.0
+
+            # Define apenas o cenário do grupo, não o valor de bonificação
             bonificacao_pct = 0.0
             motivo = ""
 
-            # Decide bonificação para grupo, com mesmas regras das lojas
             meta_25 = total_meta * 0.25
             meta_20 = total_meta * 0.20
 
@@ -242,19 +247,28 @@ class CalculoMeta:
                 motivo = "Grupo bateu 20% da meta de valor e 50% do mix"
             elif total_comprado >= meta_20 and perc_mix < 50:
                 bonificacao_pct = 0.01
-                motivo = "Grupo não bateu mix, mas bateu 20% da meta de valor"
+                motivo = "Grupo bateu meta de 20% da venda anterior, mas não o mix"
             else:
                 bonificacao_pct = 0.0
                 motivo = "Grupo não bateu critérios de bonificação"
 
-            valor_bonificacao = total_comprado * bonificacao_pct
+            # ✅ Soma as bonificações já calculadas individualmente pelas lojas
+            cursor.execute("""
+                SELECT SUM(valor_bonificacao)
+                FROM resultado_meta_por_mes
+                WHERE mes_referencia = ?
+                AND id_loja != 0
+            """, (mes_referencia,))
+            row_bonificacao = cursor.fetchone()
+            valor_bonificacao_total = row_bonificacao[0] if row_bonificacao and row_bonificacao[0] else 0.0
 
+            # Grava linha consolidada do grupo (id_loja = 0)
             data_hoje = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute("""
                 INSERT OR REPLACE INTO resultado_meta_por_mes (
                     id_loja, mes_referencia, data_ultima_consulta,
-                    metavalor, metavalorabatido, percentual_metavalor,
+                    metavalor, metavalorbatido, percentual_metavalor,
                     skumetamix, skumetamixcomprado, percentual_metamix,
                     bonificacao_pct, valor_bonificacao, motivo
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -262,10 +276,11 @@ class CalculoMeta:
                 0, mes_referencia, data_hoje,
                 total_meta, total_comprado, perc_valor,
                 total_skus_catalogo, total_skus_comprados, perc_mix,
-                bonificacao_pct, valor_bonificacao, motivo
+                bonificacao_pct, valor_bonificacao_total, motivo
             ))
 
             conn.commit()
+
             logger.info(f"[Grupo] Totais salvos para {mes_referencia} como id_loja = 0.")
             logger.info(f"[Grupo] Valor Comprado: R$ {total_comprado:,.2f}")
             logger.info(f"[Grupo] Meta Valor: R$ {total_meta:,.2f}")
@@ -273,11 +288,13 @@ class CalculoMeta:
             logger.info(f"[Grupo] Total SKUs catálogo: {total_skus_catalogo}")
             logger.info(f"[Grupo] Total SKUs comprados: {total_skus_comprados}")
             logger.info(f"[Grupo] Percentual MIX: {perc_mix:.2f}%")
+            logger.info(f"[Grupo] Valor Bonificação do grupo (somatório lojas): R$ {valor_bonificacao_total:,.2f}")
 
         else:
             logger.warning(f"[Grupo] Nenhum dado consolidado encontrado para {mes_referencia}.")
 
         conn.close()
+
 
     def processar(self, mes_referencia):
         try:
