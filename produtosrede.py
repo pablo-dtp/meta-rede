@@ -15,13 +15,15 @@ from logger import Logger  # importando logger centralizado
 
 
 class ProdutosRedeScraper:
-    def __init__(self):
+    def __init__(self, mes_referencia):
         load_dotenv()
         self.db_path = os.getenv("DB_LITE_PATH")
         if not self.db_path:
             raise ValueError("Variável DB_LITE_PATH não configurada no .env")
 
-        self.mes_referencia = datetime.now().strftime("%Y-%m")
+        self.mes_referencia = mes_referencia
+        if self.mes_referencia is None:
+            self.mes_referencia = datetime.now().strftime("%Y-%m")
         #self.mes_referencia = "2025-05"
         self.data_coleta = datetime.now().strftime("%Y-%m-%d")
 
@@ -150,5 +152,5 @@ class ProdutosRedeScraper:
 
 
 if __name__ == "__main__":
-    scraper = ProdutosRedeScraper()
+    scraper = ProdutosRedeScraper(mes_referencia="2025-06")
     scraper.coletar_produtos()

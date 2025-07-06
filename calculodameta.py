@@ -53,28 +53,39 @@ class CalculoMeta:
         """)
         self.sqlite_conn.commit()
 
-    # Funções de busca (vendas, compras, sku etc) permanecem as mesmas
+    # Nova função para calcular mês com subtração de meses, cuidando ano/mês
+    def obter_mes_antes(self, mes_referencia, meses_antes=1):
+        ano, mes = map(int, mes_referencia.split('-'))
+        mes -= meses_antes
+        while mes <= 0:
+            mes += 12
+            ano -= 1
+        return f"{ano:04d}-{mes:02d}"
 
     def buscar_vendas_mes_anterior(self, mes_referencia):
         ano, mes = map(int, mes_referencia.split('-'))
-        data_ref = datetime(ano, mes, 1)
-        mes_ant = data_ref - timedelta(days=1)
-        mes_ant_ref = mes_ant.strftime('%Y-%m')
+
+        if mes == 1:  # janeiro
+            meses_antes = 2
+        else:
+            meses_antes = 1
+
+        mes_busca = self.obter_mes_antes(mes_referencia, meses_antes)
 
         self.sqlite_cursor.execute("""
             SELECT valor_venda
               FROM vendas_por_mes
              WHERE id_loja = ?
                AND mes_referencia = ?
-        """, (self.id_loja, mes_ant_ref))
+        """, (self.id_loja, mes_busca))
         row = self.sqlite_cursor.fetchone()
 
         if row:
             venda = float(row[0])
-            self.logger.info(f"Loja {self.id_loja} - Venda mês anterior ({mes_ant_ref}): R$ {venda:,.2f}")
+            self.logger.info(f"Loja {self.id_loja} - Venda {meses_antes} mês(es) antes ({mes_busca}): R$ {venda:,.2f}")
             return venda
         else:
-            self.logger.warning(f"Loja {self.id_loja} - Sem dados de venda para {mes_ant_ref}.")
+            self.logger.warning(f"Loja {self.id_loja} - Sem dados de venda para {mes_busca}.")
             return 0.0
 
     def buscar_compras_mes(self, mes_referencia):
@@ -308,14 +319,26 @@ class CalculoMeta:
 
 
 if __name__ == "__main__":
+    data_inicio = datetime(2024, 6, 1)
     agora = datetime.now()
-    mes_referencia = agora.strftime("%Y-%m")
 
-    # Calcula grupo primeiro
-    calc_grupo = CalculoMeta(id_loja=0)
-    calc_grupo.processar(mes_referencia)
+    ano = data_inicio.year
+    mes = data_inicio.month
 
-    # Depois calcula as lojas individualmente
-    for loja in [1, 2, 3]:
-        calc = CalculoMeta(id_loja=loja)
-        calc.processar(mes_referencia)
+    while (ano < agora.year) or (ano == agora.year and mes <= agora.month):
+        mes_referencia = f"{ano:04d}-{mes:02d}"
+
+        # Calcula grupo primeiro
+        calc_grupo = CalculoMeta(id_loja=0)
+        calc_grupo.processar(mes_referencia)
+
+        # Depois calcula as lojas individualmente
+        for loja in [1, 2, 3]:
+            calc = CalculoMeta(id_loja=loja)
+            calc.processar(mes_referencia)
+
+        # Incrementa mês
+        mes += 1
+        if mes > 12:
+            mes = 1
+            ano += 1

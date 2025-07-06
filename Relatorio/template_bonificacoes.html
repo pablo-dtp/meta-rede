@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>Relatório Bonificações</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        .bloco-tabela {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin-bottom: 40px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #aaa;
+            padding: 6px 10px;
+            text-align: right;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        td.loja {
+            text-align: left;
+            font-weight: bold;
+            background-color: #ddd;
+        }
+        .positivo {
+            color: green;
+        }
+        .negativo {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>Relatório de Bonificações</h1>
+    
+    {% for loja, meses in dados.items() %}
+    <div class="bloco-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th class="loja" colspan="4">{{ loja }}</th>
+                </tr>
+                <tr>
+                    <th style="text-align: left;">Mês</th>
+                    <th>Valor a receber</th>
+                    <th>Valor recebido</th>
+                    <th>Diferença</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set ns = namespace(total_a_receber=0.0, total_recebido=0.0, total_diferenca=0.0) %}
+                {% for mes, info in meses.items() %}
+                <tr>
+                    <td style="text-align: left;">{{ mes }}</td>
+                    <td>R$ {{ "%.2f"|format(info.valor_a_receber) }}</td>
+                    <td>R$ {{ "%.2f"|format(info.valor_recebido) }}</td>
+                    <td class="{{ 'positivo' if info.diferenca >= 0 else 'negativo' }}">
+                        R$ {{ "%.2f"|format(info.diferenca) }}
+                    </td>
+                </tr>
+                {% set ns.total_a_receber = ns.total_a_receber + info.valor_a_receber %}
+                {% set ns.total_recebido = ns.total_recebido + info.valor_recebido %}
+                {% set ns.total_diferenca = ns.total_diferenca + info.diferenca %}
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td style="font-weight: bold; text-align: left;">Total</td>
+                    <td style="font-weight: bold;">R$ {{ "%.2f"|format(ns.total_a_receber) }}</td>
+                    <td style="font-weight: bold;">R$ {{ "%.2f"|format(ns.total_recebido) }}</td>
+                    <td style="font-weight: bold;" class="{{ 'positivo' if ns.total_diferenca >= 0 else 'negativo' }}">
+                        R$ {{ "%.2f"|format(ns.total_diferenca) }}
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% endfor %}
+</body>
+</html>
