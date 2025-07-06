@@ -2,8 +2,8 @@ import psycopg2
 import sqlite3
 import os
 from dotenv import load_dotenv
-import logging
 from datetime import datetime
+from logger import Logger  # importa o logger centralizado
 
 class VendasPorMes:
     def __init__(self, id_loja):
@@ -14,16 +14,14 @@ class VendasPorMes:
         self.conn_sqlite = None
         self.cursor_sqlite = None
 
-        log_dir = "Logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        # Pega o path do banco SQLite do .env
+        self.db_path = os.getenv("DB_LITE_PATH")
+        if not self.db_path:
+            raise ValueError("Variável DB_LITE_PATH não configurada no .env")
 
-        logging.basicConfig(
-            filename=os.path.join(log_dir, "vendas_por_mes.log"),
-            filemode="a",
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            level=logging.INFO
-        )
+        # Inicializa logger
+        logger_config = Logger()
+        self.logger = logger_config.get_logger(self.__class__.__name__)
 
     def conectar_postgres(self):
         self.conn_pg = psycopg2.connect(
@@ -34,10 +32,10 @@ class VendasPorMes:
             password=os.getenv("PG_PASSWORD")
         )
         self.cursor_pg = self.conn_pg.cursor()
-        logging.info(f"Conectado ao PostgreSQL para loja {self.id_loja}.")
+        self.logger.info(f"Conectado ao PostgreSQL para loja {self.id_loja}.")
 
     def conectar_sqlite(self):
-        self.conn_sqlite = sqlite3.connect("Banco/Produtos.db")
+        self.conn_sqlite = sqlite3.connect(self.db_path)
         self.cursor_sqlite = self.conn_sqlite.cursor()
 
         self.cursor_sqlite.execute("""
@@ -50,7 +48,7 @@ class VendasPorMes:
         """)
         self.conn_sqlite.commit()
 
-        logging.info("Tabela vendas_por_mes criada/verificada no SQLite.")
+        self.logger.info("Tabela vendas_por_mes criada/verificada no SQLite.")
 
     def buscar_vendas_pg(self, ano, mes):
         query = """
@@ -67,7 +65,7 @@ class VendasPorMes:
         """
         self.cursor_pg.execute(query, (ano, mes, self.id_loja))
         resultado = self.cursor_pg.fetchall()
-        logging.info(f"Buscadas vendas para loja {self.id_loja} em {ano}-{mes:02d}.")
+        self.logger.info(f"Buscadas vendas para loja {self.id_loja} em {ano}-{mes:02d}.")
         return resultado
 
     def salvar_sqlite(self, ano, dados):
@@ -86,7 +84,7 @@ class VendasPorMes:
                 venda_float
             ))
         self.conn_sqlite.commit()
-        logging.info(f"Salvo SQLite para loja {self.id_loja} em {ano}.")
+        self.logger.info(f"Salvo SQLite para loja {self.id_loja} em {ano}.")
 
     def consultar_venda(self):
         try:
@@ -101,11 +99,11 @@ class VendasPorMes:
             if dados:
                 self.salvar_sqlite(ano, dados)
             else:
-                logging.info(f"Sem vendas encontradas para loja {self.id_loja} em {ano}-{mes:02d}.")
+                self.logger.info(f"Sem vendas encontradas para loja {self.id_loja} em {ano}-{mes:02d}.")
 
-            logging.info(f"Processo finalizado para loja {self.id_loja} em {ano}-{mes:02d}.")
+            self.logger.info(f"Processo finalizado para loja {self.id_loja} em {ano}-{mes:02d}.")
         except Exception as e:
-            logging.error(f"Erro para loja {self.id_loja}: {e}")
+            self.logger.error(f"Erro para loja {self.id_loja}: {e}")
         finally:
             self.fechar_conexoes()
 
@@ -118,7 +116,8 @@ class VendasPorMes:
             self.cursor_sqlite.close()
         if self.conn_sqlite:
             self.conn_sqlite.close()
-        logging.info(f"Conexões fechadas para loja {self.id_loja}.")
+        self.logger.info(f"Conexões fechadas para loja {self.id_loja}.")
+
 
 if __name__ == "__main__":
     lojas = [1, 2, 3]

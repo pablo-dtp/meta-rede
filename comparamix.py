@@ -1,40 +1,28 @@
 import sqlite3
-import logging
+from dotenv import load_dotenv
 import os
+from logger import Logger  # importa o módulo de logging centralizado
 
 class ComparadorMixProdutos:
-    def __init__(self, db_path='Banco/Produtos.db'):
+    def __init__(self, db_path=None):
+        load_dotenv()
+        if db_path is None:
+            db_path = os.getenv("DB_LITE_PATH")
         self.db_path = db_path
-        # Configura o logger da classe
-        log_dir = "Logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        logging.basicConfig(
-            filename=os.path.join(log_dir, 'compararmix.log'),
-            filemode='a',
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            level=logging.INFO
-        )
-        self.logger = logging.getLogger(__name__)
+
+        # Inicializa o logger configurado e obtém logger com nome da classe
+        logger_config = Logger()
+        self.logger = logger_config.get_logger(self.__class__.__name__)
 
     def calcular_percentual_comprados(self, mes_referencia=None, id_loja=None):
-        """
-        Calcula a porcentagem de produtos comprados em relação aos ofertados pela rede,
-        e já registra o resultado no log.
-
-        Args:
-            mes_referencia (str): opcional, no formato 'YYYY-MM'. Se informado, filtra pelos produtos desse mês.
-            id_loja (int or str): opcional, se informado filtra produtos comprados por loja.
-
-        Returns:
-            dict: dicionário com total ofertado, total comprado e percentual.
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         if mes_referencia:
             cursor.execute("""
-                SELECT COUNT(DISTINCT codigoexterno) FROM produtosrede_historico WHERE mes_referencia = ?
+                SELECT COUNT(DISTINCT codigoexterno) 
+                FROM produtosrede_historico 
+                WHERE mes_referencia = ?
             """, (mes_referencia,))
             total_ofertado = cursor.fetchone()[0]
         else:

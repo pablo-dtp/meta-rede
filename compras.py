@@ -4,7 +4,7 @@ import psycopg2
 from dotenv import load_dotenv
 import os
 from datetime import datetime, date
-import logging
+from logger import Logger  # Importa o logger centralizado
 
 class ProdutosComprados:
     def __init__(self, id_loja):
@@ -15,16 +15,14 @@ class ProdutosComprados:
         self.conn_sqlite = None
         self.cursor_sqlite = None
 
-        # Setup logging (ajuste conforme quiser)
-        log_dir = "Logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        logging.basicConfig(
-            filename=os.path.join(log_dir, 'produtoscomprados.log'),
-            filemode='a',
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            level=logging.INFO
-        )
+        # Pega o path do banco SQLite do .env
+        self.db_path = os.getenv("DB_LITE_PATH")
+        if not self.db_path:
+            raise ValueError("Variável DB_LITE_PATH não configurada no .env")
+
+        # Inicializa logger
+        logger_config = Logger()
+        self.logger = logger_config.get_logger(self.__class__.__name__)
 
     def conectar_postgres(self):
         self.conn_pg = psycopg2.connect(
@@ -35,10 +33,10 @@ class ProdutosComprados:
             password=os.getenv("PG_PASSWORD")
         )
         self.cursor_pg = self.conn_pg.cursor()
-        logging.info(f"Conectado ao PostgreSQL para loja {self.id_loja}.")
+        self.logger.info(f"Conectado ao PostgreSQL para loja {self.id_loja}.")
 
     def conectar_sqlite(self):
-        self.conn_sqlite = sqlite3.connect('Banco/Produtos.db')
+        self.conn_sqlite = sqlite3.connect(self.db_path)
         self.cursor_sqlite = self.conn_sqlite.cursor()
         self.cursor_sqlite.execute("""
             CREATE TABLE IF NOT EXISTS produtoscomprados (
@@ -52,7 +50,7 @@ class ProdutosComprados:
             )
         """)
         self.conn_sqlite.commit()
-        logging.info("Conectado ao SQLite e tabela verificada/criada.")
+        self.logger.info("Conectado ao SQLite e tabela verificada/criada.")
 
     def buscar_notas_pg(self, data_ini, data_fim):
         query_xmls = """
@@ -69,7 +67,7 @@ class ProdutosComprados:
         """
         self.cursor_pg.execute(query_xmls, (self.id_loja, self.id_loja, data_ini, data_fim))
         notas = self.cursor_pg.fetchall()
-        logging.info(f"Buscadas {len(notas)} notas fiscais para loja {self.id_loja} entre {data_ini} e {data_fim}.")
+        self.logger.info(f"Buscadas {len(notas)} notas fiscais para loja {self.id_loja} entre {data_ini} e {data_fim}.")
         return notas
 
     def inserir_codigos_externos_sqlite(self, notas, mes_referencia, data_coleta):
@@ -83,7 +81,6 @@ class ProdutosComprados:
                 cprod_elements = root.findall('.//ns:cProd', ns)
                 for cprod in cprod_elements:
                     codigo_externo = cprod.text.strip()
-                    # Tenta inserir, se já existir para o mesmo mes e loja, ignora
                     self.cursor_sqlite.execute("""
                     INSERT OR IGNORE INTO produtoscomprados (codigoexterno, codigointerno, descricao, id_loja, mes_referencia, data_coleta)
                     VALUES (?, NULL, NULL, ?, ?, ?)
@@ -93,10 +90,10 @@ class ProdutosComprados:
                     else:
                         count_inserts += 1
             except Exception as e:
-                logging.error(f"Erro ao processar nota {numeronota}: {e}")
+                self.logger.error(f"Erro ao processar nota {numeronota}: {e}")
 
-        logging.info(f"Loja {self.id_loja}: Inseridos {count_inserts} novos códigos externos.")
-        logging.info(f"Loja {self.id_loja}: Ignorados {count_ignorados} códigos já existentes neste mês.")
+        self.logger.info(f"Loja {self.id_loja}: Inseridos {count_inserts} novos códigos externos.")
+        self.logger.info(f"Loja {self.id_loja}: Ignorados {count_ignorados} códigos já existentes neste mês.")
         return count_inserts, count_ignorados
 
     def identificar_codigos_internos(self, mes_referencia, data_ini, data_fim):
@@ -106,11 +103,12 @@ class ProdutosComprados:
         """, (self.id_loja, mes_referencia))
         codigo_externos = [row[0] for row in self.cursor_sqlite.fetchall()]
         if not codigo_externos:
-            logging.info(f"Loja {self.id_loja}: Todos os códigos já foram identificados ou tabela está vazia para o mês {mes_referencia}.")
+            self.logger.info(f"Loja {self.id_loja}: Todos os códigos já foram identificados ou tabela está vazia para o mês {mes_referencia}.")
             return 0, 0
 
         placeholders = ','.join(['%s'] * len(codigo_externos))
         params = [data_ini, data_fim] + codigo_externos
+        params.insert(2, self.id_loja)  # id_loja depois das datas
 
         query_principal = f"""
         SELECT DISTINCT p.id AS codigointerno, p.descricaoreduzida, pf.codigoexterno
@@ -125,8 +123,6 @@ class ProdutosComprados:
         AND ne.id_loja = %s
         AND pf.codigoexterno IN ({placeholders})
         """
-        # O id_loja no filtro deve ser depois das datas
-        params.insert(2, self.id_loja)
 
         self.cursor_pg.execute(query_principal, params)
         atualizados = 0
@@ -152,6 +148,7 @@ class ProdutosComprados:
         AND ne.id_loja = %s
         AND pe.codigoexterno IN ({placeholders})
         """
+
         self.cursor_pg.execute(query_secundaria, params)
         for codint, descricao, codext in self.cursor_pg.fetchall():
             self.cursor_sqlite.execute("""
@@ -161,7 +158,7 @@ class ProdutosComprados:
             """, (codint, descricao, codext, self.id_loja, mes_referencia))
             atualizados += 1
 
-        logging.info(f"Loja {self.id_loja}: Atualizados {atualizados} produtos via queries de identificação.")
+        self.logger.info(f"Loja {self.id_loja}: Atualizados {atualizados} produtos via queries de identificação.")
         return atualizados
 
     def remover_mercadologico16(self, mes_referencia):
@@ -179,9 +176,9 @@ class ProdutosComprados:
             WHERE codigointerno IN ({placeholders_sqlite}) AND id_loja = ? AND mes_referencia = ?
             """, ids_mercadologico16 + [self.id_loja, mes_referencia])
             removidos = self.cursor_sqlite.rowcount
-            logging.info(f"Loja {self.id_loja}: Removidos {removidos} produtos com mercadologico1 = 16 da tabela produtoscomprados.")
+            self.logger.info(f"Loja {self.id_loja}: Removidos {removidos} produtos com mercadologico1 = 16 da tabela produtoscomprados.")
         else:
-            logging.info(f"Loja {self.id_loja}: Nenhum produto com mercadologico1 = 16 encontrado para exclusão.")
+            self.logger.info(f"Loja {self.id_loja}: Nenhum produto com mercadologico1 = 16 encontrado para exclusão.")
         return removidos
 
     def listar_nao_identificados(self, mes_referencia):
@@ -191,11 +188,11 @@ class ProdutosComprados:
         """, (self.id_loja, mes_referencia))
         nao_identificados = self.cursor_sqlite.fetchall()
         if nao_identificados:
-            logging.info(f"Loja {self.id_loja} - Códigos não identificados:")
+            self.logger.info(f"Loja {self.id_loja} - Códigos não identificados:")
             for cod in nao_identificados:
-                logging.info(f" - {cod[0]}")
+                self.logger.info(f" - {cod[0]}")
         else:
-            logging.info(f"Loja {self.id_loja} - Todos os códigos foram identificados com sucesso.")
+            self.logger.info(f"Loja {self.id_loja} - Todos os códigos foram identificados com sucesso.")
 
     def fechar_conexoes(self):
         if self.cursor_pg:
@@ -206,10 +203,9 @@ class ProdutosComprados:
             self.cursor_sqlite.close()
         if self.conn_sqlite:
             self.conn_sqlite.close()
-        logging.info(f"Loja {self.id_loja}: Conexões fechadas.")
+        self.logger.info(f"Loja {self.id_loja}: Conexões fechadas.")
 
     def executar_rotina(self, data_ini=None, data_fim=None):
-        # Se não passar datas, define automaticamente:
         if data_ini is None or data_fim is None:
             hoje = date.today()
             data_ini = hoje.replace(day=1).strftime("%Y-%m-%d")
@@ -219,7 +215,7 @@ class ProdutosComprados:
         data_coleta = datetime.now().strftime("%Y-%m-%d")
 
         try:
-            logging.info(f"Iniciando rotina para loja {self.id_loja} entre {data_ini} e {data_fim}...")
+            self.logger.info(f"Iniciando rotina para loja {self.id_loja} entre {data_ini} e {data_fim}...")
             self.conectar_postgres()
             self.conectar_sqlite()
 
@@ -239,18 +235,15 @@ class ProdutosComprados:
             total_registros_mes = self.cursor_sqlite.execute("""
                 SELECT COUNT(*) FROM produtoscomprados WHERE id_loja = ? AND mes_referencia = ?
             """, (self.id_loja, mes_referencia)).fetchone()[0]
-            logging.info(f"Loja {self.id_loja}: Total de registros no mês {mes_referencia}: {total_registros_mes}")
+            self.logger.info(f"Loja {self.id_loja}: Total de registros no mês {mes_referencia}: {total_registros_mes}")
 
-            logging.info(f"Loja {self.id_loja}: Processo finalizado com sucesso.")
+            self.logger.info(f"Loja {self.id_loja}: Processo finalizado com sucesso.")
         except Exception as e:
-            logging.error(f"Loja {self.id_loja}: Erro inesperado: {e}")
+            self.logger.error(f"Loja {self.id_loja}: Erro inesperado: {e}")
         finally:
             self.fechar_conexoes()
 
 if __name__ == "__main__":
-    pc = ProdutosComprados(id_loja=1)
-    pc.executar_rotina()
-    pc2 = ProdutosComprados(id_loja=2)
-    pc2.executar_rotina()
-    pc3 = ProdutosComprados(id_loja=3)
-    pc3.executar_rotina()
+    for loja in [1, 2, 3]:
+        pc = ProdutosComprados(id_loja=loja)
+        pc.executar_rotina()

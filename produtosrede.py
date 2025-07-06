@@ -1,4 +1,3 @@
-import logging
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -12,29 +11,28 @@ from datetime import datetime
 import sqlite3
 import os
 import time
+from logger import Logger  # importando logger centralizado
 
 
 class ProdutosRedeScraper:
-    def __init__(self, db_path='Banco/Produtos.db', log_dir='Logs'):
-        self.db_path = db_path
-        self.log_dir = log_dir
-        self._setup_logging()
+    def __init__(self):
         load_dotenv()
-        self.usuario = os.getenv("USUARIO_VR")
-        self.senha = os.getenv("SENHA_VR")
+        self.db_path = os.getenv("DB_LITE_PATH")
+        if not self.db_path:
+            raise ValueError("Variável DB_LITE_PATH não configurada no .env")
+
         self.mes_referencia = datetime.now().strftime("%Y-%m")
         self.data_coleta = datetime.now().strftime("%Y-%m-%d")
 
-    def _setup_logging(self):
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
-        logging.getLogger("webdriver_manager").setLevel(logging.WARNING)
-        logging.basicConfig(
-            filename=os.path.join(self.log_dir, 'produtosrede.log'),
-            filemode='a',
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            level=logging.INFO
-        )
+        logger_config = Logger(log_file='produtosrede.log')
+        self.logger = logger_config.get_logger(self.__class__.__name__)
+
+        self.usuario = os.getenv("USUARIO_VR")
+        self.senha = os.getenv("SENHA_VR")
+
+        self.conn = None
+        self.cursor = None
+        self.driver = None
 
     def _setup_db(self):
         self.conn = sqlite3.connect(self.db_path)
@@ -67,7 +65,7 @@ class ProdutosRedeScraper:
         self._setup_driver()
 
         try:
-            logging.info("Iniciando a coleta de produtos.")
+            self.logger.info("Iniciando a coleta de produtos.")
             self.driver.get("http://redeintegrada.ddns.net:38080/php/vrcentralrede/login.php")
             time.sleep(2)
 
@@ -78,7 +76,7 @@ class ProdutosRedeScraper:
             time.sleep(3)
 
             if "Usuário ou senha inválidos" in self.driver.page_source or "Login inválido" in self.driver.page_source:
-                logging.error("Falha no login: usuário ou senha incorretos.")
+                self.logger.error("Falha no login: usuário ou senha incorretos.")
                 return False
 
             self.driver.find_element(By.XPATH, "//a[contains(text(),'Novo')]").click()
@@ -132,15 +130,15 @@ class ProdutosRedeScraper:
                     ''', (descricao, self.data_coleta, codigo, self.mes_referencia))
 
             self.conn.commit()
-            logging.info(f"{len(todos_codigos)} produtos processados com base em {self.mes_referencia}.")
+            self.logger.info(f"{len(todos_codigos)} produtos processados com base em {self.mes_referencia}.")
             return True
 
         except (WebDriverException, TimeoutException) as e:
-            logging.error(f"Erro ao acessar o site ou timeout: {e}")
+            self.logger.error(f"Erro ao acessar o site ou timeout: {e}")
             return False
 
         except Exception as e:
-            logging.error(f"Erro inesperado: {e}")
+            self.logger.error(f"Erro inesperado: {e}")
             return False
 
         finally:
@@ -150,11 +148,10 @@ class ProdutosRedeScraper:
                 self.conn.close()
 
 
-# Para rodar isolado:
 if __name__ == "__main__":
     scraper = ProdutosRedeScraper()
-    success = scraper.coletar_produtos()
-    if success:
+    sucesso = scraper.coletar_produtos()
+    if sucesso:
         print("Coleta finalizada com sucesso.")
     else:
         print("Erro na coleta.")
