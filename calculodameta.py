@@ -193,7 +193,7 @@ class CalculoMeta:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Cria tabela caso não exista
+        # Garante que a tabela existe
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS resultado_meta_por_mes (
                 id_loja INTEGER,
@@ -213,7 +213,7 @@ class CalculoMeta:
         """)
         conn.commit()
 
-        # Soma os dados consolidados das lojas
+        # Soma dados das lojas
         cursor.execute("""
             SELECT 
                 SUM(metavalorbatido),
@@ -232,27 +232,25 @@ class CalculoMeta:
             perc_valor = (total_comprado / total_meta) * 100 if total_meta else 0.0
             perc_mix = (total_skus_comprados / total_skus_catalogo) * 100 if total_skus_catalogo else 0.0
 
-            # Define apenas o cenário do grupo, não o valor de bonificação
+            # Define bonificação do grupo
             bonificacao_pct = 0.0
             motivo = ""
 
-            meta_25 = total_meta * 0.25
-            meta_20 = total_meta * 0.20
-
-            if total_comprado >= meta_25 and perc_mix >= 50:
+            # Regras de bonificação GRUPO
+            if total_comprado >= total_meta and perc_mix >= 50:
                 bonificacao_pct = 0.02
-                motivo = "Grupo bateu 25% da meta de valor e 50% do mix"
-            elif total_comprado >= meta_20 and perc_mix >= 50:
+                motivo = "Grupo bateu 100% da meta de valor e 50% do mix"
+            elif total_comprado >= (total_meta * 0.80) and perc_mix >= 50:
                 bonificacao_pct = 0.015
-                motivo = "Grupo bateu 20% da meta de valor e 50% do mix"
-            elif total_comprado >= meta_20 and perc_mix < 50:
+                motivo = "Grupo bateu 80% da meta de valor e 50% do mix"
+            elif total_comprado >= (total_meta * 0.80) and perc_mix < 50:
                 bonificacao_pct = 0.01
-                motivo = "Grupo bateu meta de 20% da venda anterior, mas não o mix"
+                motivo = "Grupo bateu 80% da meta de valor, mas não o mix"
             else:
                 bonificacao_pct = 0.0
                 motivo = "Grupo não bateu critérios de bonificação"
 
-            # ✅ Soma as bonificações já calculadas individualmente pelas lojas
+            # Soma bonificações das lojas
             cursor.execute("""
                 SELECT SUM(valor_bonificacao)
                 FROM resultado_meta_por_mes
@@ -262,7 +260,7 @@ class CalculoMeta:
             row_bonificacao = cursor.fetchone()
             valor_bonificacao_total = row_bonificacao[0] if row_bonificacao and row_bonificacao[0] else 0.0
 
-            # Grava linha consolidada do grupo (id_loja = 0)
+            # Insere ou atualiza linha do grupo (id_loja = 0)
             data_hoje = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute("""
@@ -288,13 +286,13 @@ class CalculoMeta:
             logger.info(f"[Grupo] Total SKUs catálogo: {total_skus_catalogo}")
             logger.info(f"[Grupo] Total SKUs comprados: {total_skus_comprados}")
             logger.info(f"[Grupo] Percentual MIX: {perc_mix:.2f}%")
+            logger.info(f"[Grupo] Bonificação % do grupo: {bonificacao_pct * 100:.2f}%")
             logger.info(f"[Grupo] Valor Bonificação do grupo (somatório lojas): R$ {valor_bonificacao_total:,.2f}")
 
         else:
             logger.warning(f"[Grupo] Nenhum dado consolidado encontrado para {mes_referencia}.")
 
         conn.close()
-
 
     def processar(self, mes_referencia):
         try:
