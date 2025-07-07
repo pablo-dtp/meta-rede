@@ -9,6 +9,7 @@ from weasyprint import HTML
 from logger import Logger
 import logging
 import locale
+import subprocess
 
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
@@ -219,7 +220,46 @@ class ValidaBonificacaoAnual:
             self.fechar()
 
 if __name__ == "__main__":
-    mes_referencia = "2025-06"
+    logger = Logger().get_logger("Main")
+
+    # Exemplo fixo para teste:
+    #mes_referencia = '2025-06'
+    mes_referencia = datetime.now().strftime("%Y-%m")
     processador = ValidaBonificacaoAnual(mes_referencia)
-    processador.processar_cruzamento()
-    processador.gerar_relatorio_pdf()
+
+    try:
+        processador.processar_cruzamento()
+        processador.gerar_relatorio_pdf()
+
+        # calcula período (últimos 12 meses)
+        mes_ref_dt = datetime.strptime(mes_referencia, "%Y-%m")
+        data_inicio = (mes_ref_dt - relativedelta(months=11))
+        data_fim = mes_ref_dt
+
+        inicio_final = data_inicio.strftime("%B/%Y").lower()   # ex.: agosto/2024
+        fim_final = data_fim.strftime("%B/%Y").lower()         # ex.: junho/2025
+
+        mes_ref = mes_ref_dt.strftime("%m")                    # ex.: "06"
+        ano_ref = mes_ref_dt.strftime("%Y")                    # ex.: "2025"
+
+        logger.info(f"Período do relatório: {inicio_final} até {fim_final}")
+
+        pasta_bot = os.path.join(os.getcwd(), 'BotWhatsapp')
+        caminho_script_node = os.path.join(pasta_bot, 'enviarRelatorioBonificacao.js')
+
+        logger.info(f"Executando script Node.js para envio do relatório: {caminho_script_node}")
+
+        resultado = subprocess.run(
+            ['node', caminho_script_node, inicio_final, fim_final, mes_ref, ano_ref],
+            cwd=pasta_bot,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        logger.info(f"Script Node.js executado com sucesso. Output:\n{resultado.stdout}")
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Erro ao executar script Node.js: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Erro inesperado: {e}")
